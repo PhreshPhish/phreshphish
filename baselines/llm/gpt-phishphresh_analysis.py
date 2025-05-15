@@ -89,7 +89,7 @@ def SimplifyHTML(inputHTML):
 
     processedHTML = str(soup)
 
-    if countToken(processedHTML) < 5000:
+    if countToken(processedHTML) < 2500:
         return processedHTML
 
     important_tags = {"p", "a", "img", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li"}
@@ -109,10 +109,10 @@ def SimplifyHTML(inputHTML):
 
     processedHTML = str(soup)
 
-    if countToken(processedHTML) < 5000:
+    if countToken(processedHTML) < 2500:
         return processedHTML
 
-    while countToken(processedHTML) > 5000:
+    while countToken(processedHTML) > 2500:
         tags = soup.find_all(True)
         if not tags:
             break
