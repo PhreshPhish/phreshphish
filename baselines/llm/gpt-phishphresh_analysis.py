@@ -29,6 +29,7 @@ system_prompt = """
 You are an expert in analyzing URL and multi-lingual HTML to classify webpage as phishing or legitimate page.
 Focus only on identifying if the page is phishing and its corresponding risk score.
 Given the URL and HTML, perform the following analysis for any Social Engineering techniques often used in phishing attacks:
+First perform thorough REASONING on the URL and HTML_CONTENT looking for suspicious elements or inconsistencies, domain issues, detect content red flags, evaluate security indicators and inconsistencies, and then classify with a confidence score.
 1.  **PHISHING:** Whether the webpage is a phishing page or a legitimate page. (True if phishing, False if legitimate)
 2.  **SCORE:** Indicates phishing risk on a scale of 1 to 10 (inclusive), where 1 is the least likely to have phishing content and 10 is the most likely.
 3.  **REASON:** Briefly (one sentence) explain the reasoning behind your determination.
