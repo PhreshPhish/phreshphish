@@ -1,10 +1,7 @@
 """Constructs a list of SHA256s that contain PII in the datset."""
 
-import polars as pl
 import json
 from tqdm import tqdm
-from urllib.parse import urlparse, unquote
-
 from .data import PhreshPhishDataset
 from .models import load
 
