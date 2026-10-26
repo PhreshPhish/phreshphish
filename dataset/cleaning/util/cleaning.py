@@ -8,7 +8,7 @@ import multiprocessing as mp
 import gc
 from pathlib import Path
 from typing import Dict, Any, List
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 
 import numpy as np
 import polars as pl
@@ -22,11 +22,67 @@ import matplotlib.pyplot as plt
 from collections import Counter, defaultdict
 from itertools import combinations
 from IPython.display import clear_output
-from selectolax.parser import HTMLParser
+from selectolax.lexbor import LexborHTMLParser
 from bs4 import BeautifulSoup
 
 # compile once at import time
 HTML_TAG_PATTERN = re.compile(r"<\s*\w+[^>]*>")
+
+
+def extract_title(html: str | None) -> str | None:
+    """
+    Return the page's <title> text, stripped and lowercased, or None if there isn't one.
+    """
+    if html and HTML_TAG_PATTERN.search(html):
+        title_tag = LexborHTMLParser(html).css_first("title")
+        return title_tag.text().strip().lower() if title_tag else None
+    return None
+
+
+def _extract_titles_batch(html: pl.Series) -> list[str | None]:
+    return [extract_title(value) for value in html]
+
+
+def add_titles(
+    df: pl.DataFrame, n_jobs: int = 4, batch_size: int = 256
+) -> pl.DataFrame:
+    """
+    Add a `title` column parsed from the `html` column.
+    Needed when loading from parquet or Hugging Face, which don't store titles.
+
+    Parse bounded batches on `n_jobs` threads (default 4), preserving row order
+    and reporting completed rows with tqdm. Set `n_jobs=1` for serial parsing.
+    `batch_size` controls rows per batch and progress update (default 256).
+    """
+    if n_jobs < 1:
+        raise ValueError("n_jobs must be at least 1")
+    if batch_size < 1:
+        raise ValueError("batch_size must be at least 1")
+
+    html = df.get_column("html")
+    titles: list[str | None] = []
+    workers = min(n_jobs, (len(html) + batch_size - 1) // batch_size)
+
+    with tqdm(total=len(html), desc="Extracting titles", unit="rows") as pbar:
+        if workers <= 1:
+            for offset in range(0, len(html), batch_size):
+                batch = html.slice(offset, batch_size)
+                titles.extend(_extract_titles_batch(batch))
+                pbar.update(len(batch))
+        else:
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                for offset in range(0, len(html), batch_size * workers):
+                    batches = (
+                        html.slice(start, batch_size)
+                        for start in range(
+                            offset, min(offset + batch_size * workers, len(html)), batch_size
+                        )
+                    )
+                    for result in executor.map(_extract_titles_batch, batches):
+                        titles.extend(result)
+                        pbar.update(len(result))
+
+    return df.with_columns(pl.Series("title", titles, dtype=pl.Utf8))
 
 
 def load_sample(filename: str) -> dict[str, Any]:
@@ -42,19 +98,11 @@ def load_sample(filename: str) -> dict[str, Any]:
         url = normalize_url(data["url"])
         html = data.get("html", data.get("html_content", ""))
 
-        # Parse title if possible, but do NOT parse text
-        if html and HTML_TAG_PATTERN.search(html):
-            parser = HTMLParser(html)
-            title_tag = parser.css_first("title")
-            title = title_tag.text().strip().lower() if title_tag else None
-        else:
-            title = None
-
         return {
             "sha256": sha256,
             "url": url,
             "html": html,
-            "title": title,
+            "title": extract_title(html),
             "label": label,
             "filename": filename,
         }
@@ -356,7 +404,7 @@ def find_duplicate_urls(df: pl.DataFrame) -> pl.DataFrame:
     occurrences of the same 'url'. First instance is False.
     Prints how many duplicates were found.
     """
-    df = df.with_row_count("row_idx")
+    df = df.with_row_index("row_idx")
 
     df = df.with_columns(
         [
